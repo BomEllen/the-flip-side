@@ -70,6 +70,7 @@ type AppState = {
   todayCard: FlipCardData | null;
   archiveCards: FlipCardData[];
   isTodayCardFlipped: boolean;
+  isLoadingCard: boolean;
 
   // 액션
   toggleKeyword: (keyword: InterestKeyword) => void;
@@ -77,7 +78,7 @@ type AppState = {
   flipTodayCard: () => void;
   reactToCard: (id: string, reaction: "boom-up" | "boom-down") => void;
   archiveTodayCard: () => void;
-  refreshTodayCard: () => void;
+  refreshTodayCard: () => Promise<void>;
   // 온보딩 페이지 재진입 시 키워드 선택 초기화
   resetKeywords: () => void;
 };
@@ -145,16 +146,17 @@ const AXIS_COMBO_LABELS: Record<string, string> = {
 
 // 키워드 기반 취향 좌표 계산 — 선택한 키워드와 연결된 축을 높게 시작
 const computeTasteCoordinates = (keywords: InterestKeyword[]): TasteCoordinate[] => {
-  // 기본값: 모든 축 35~50 범위에서 시작
+  // 기본값: 모든 축 30 고정으로 시작 (랜덤 제거 → 점수 차이 명확)
   const base: Record<string, number> = Object.fromEntries(
-    AXES.map((axis) => [axis, Math.floor(Math.random() * 15) + 35])
+    AXES.map((axis) => [axis, 30])
   );
-  // 선택한 키워드마다 연결 축에 +12~18 부스트
+  // 서브 키워드 ID("tech_0") → 카테고리 ID("tech") 정규화 후 축 부스트
   keywords.forEach((kw) => {
-    const axes = KEYWORD_TO_AXES[kw.id] ?? [];
+    const catId = kw.id.includes("_") ? kw.id.split("_")[0] : kw.id;
+    const axes = KEYWORD_TO_AXES[catId] ?? [];
     axes.forEach((axis) => {
       if (base[axis] !== undefined) {
-        base[axis] = Math.min(90, base[axis] + Math.floor(Math.random() * 6) + 12);
+        base[axis] = Math.min(90, base[axis] + 15);
       }
     });
   });
@@ -168,6 +170,7 @@ const getUserTypeLabel = (keywords: InterestKeyword[]): string => {
   );
 
   keywords.forEach((kw) => {
+    // 서브 키워드 ID("tech_0") → 카테고리 ID("tech") 정규화
     const catId = kw.id.includes("_") ? kw.id.split("_")[0] : kw.id;
     const axes  = KEYWORD_TO_AXES[catId] ?? [];
     axes.forEach((ax) => { axisScore[ax] += 1; });
@@ -516,7 +519,10 @@ function getPersonalizedCard(
 ): FlipCardData {
   const dateStr = todayDateStr();
   const seed = dayOfYear();
-  const userKeywordIds = new Set(selectedKeywords.map((k) => k.id));
+  // 서브 키워드 ID("tech_0") → 카테고리 ID("tech") 로 정규화
+  const userCatIds = new Set(
+    selectedKeywords.map((k) => (k.id.includes("_") ? k.id.split("_")[0] : k.id))
+  );
   // 이미 본 카드 식별 (프론트 카드 제목 기준)
   const seenTitles = new Set(archiveCards.map((c) => c.frontContent.title));
 
@@ -534,12 +540,12 @@ function getPersonalizedCard(
       if (coord) score += (100 - coord.value) * 2;
     }
 
-    // 3. 관심 매칭 점수 — 프론트 카드가 사용자 키워드와 가까울수록 거부감 없이 노출
+    // 3. 관심 매칭 점수 — 카테고리 ID 기준으로 사용자 키워드와 매칭
     const relatedKws = FRONT_CATEGORY_TO_KEYWORDS[template.frontContent.category] ?? [];
-    score += relatedKws.filter((k) => userKeywordIds.has(k)).length * 25;
+    score += relatedKws.filter((k) => userCatIds.has(k)).length * 25;
 
-    // 4. 날짜 시드 다양성 — 동점 시 매일 다른 카드 선택
-    score += ((idx + seed) % CARD_POOL.length) * 0.1;
+    // 4. 날짜 시드 다양성 — 동점 시 매일 다른 카드 선택 (최대 ±24점 범위)
+    score += ((idx * 7 + seed * 3) % CARD_POOL.length) * 2;
 
     return { template, score };
   });
@@ -662,6 +668,7 @@ export const useAppStore = create<AppState>()(
       todayCard: getPersonalizedCard([], [], []),
       archiveCards: MOCK_ARCHIVE_CARDS,
       isTodayCardFlipped: false,
+      isLoadingCard: false,
 
       toggleKeyword: (keyword) => {
         const { selectedKeywords } = get();
@@ -748,11 +755,12 @@ export const useAppStore = create<AppState>()(
 
       resetKeywords: () => set({ selectedKeywords: [] }),
 
-      refreshTodayCard: () => {
-        const { todayCard, archiveCards, evolvedTasteCoordinates, selectedKeywords } = get();
+      refreshTodayCard: async () => {
+        const { todayCard, archiveCards, evolvedTasteCoordinates, selectedKeywords, onboardingComplete } = get();
         const currentDate = todayDateStr();
-        // 날짜가 바뀌었거나 아직 개인화되지 않은 경우에만 재계산
-        if (todayCard?.date === currentDate) return;
+
+        // 날짜가 같고 이미 개인화된 카드면 유지
+        if (todayCard?.date === currentDate && onboardingComplete && evolvedTasteCoordinates.length > 0) return;
 
         // 전날 카드 자동 아카이브
         const updatedArchive =
@@ -760,9 +768,38 @@ export const useAppStore = create<AppState>()(
             ? [todayCard, ...archiveCards]
             : archiveCards;
 
-        // 최신 evolvedTasteCoordinates 기반으로 새 카드 선택
+        set({ isLoadingCard: true });
+
+        try {
+          // YouTube API 기반 동적 추천 시도
+          const res = await fetch("/api/recommend", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tasteCoordinates: evolvedTasteCoordinates, selectedKeywords }),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            // API 키 없음 또는 검색 실패 → CARD_POOL 폴백
+            if (!data.fallback && data.card) {
+              const dateStr = todayDateStr();
+              const dynamicCard: FlipCardData = {
+                ...data.card,
+                id: `today-${dateStr}`,
+                date: dateStr,
+                reaction: null,
+              };
+              set({ todayCard: dynamicCard, isTodayCardFlipped: false, archiveCards: updatedArchive, isLoadingCard: false });
+              return;
+            }
+          }
+        } catch {
+          // 네트워크 오류 → 폴백으로 계속 진행
+        }
+
+        // 폴백: CARD_POOL 기반 개인화 선택
         const fresh = getPersonalizedCard(evolvedTasteCoordinates, selectedKeywords, updatedArchive);
-        set({ todayCard: fresh, isTodayCardFlipped: false, archiveCards: updatedArchive });
+        set({ todayCard: fresh, isTodayCardFlipped: false, archiveCards: updatedArchive, isLoadingCard: false });
       },
     }),
     { name: "flip-side-store" }

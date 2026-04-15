@@ -8,16 +8,16 @@ import { CATEGORIES } from "../InterestGrid/data";
 
 // ─── 레이아웃 상수 ────────────────────────────────────────────────────────────
 
-const COLS      = 3;    // 고정 3열 그리드
-const PARENT_R  = 40;   // 부모 노드 반지름 (px)
-const SUB_R     = 28;   // 서브 노드 반지름 (px)
-const CELL_W    = 96;   // 그리드 셀 너비
-const CELL_H    = 96;   // 그리드 셀 높이
-const PAD_TOP   = 20;   // 상단 여백
-const PAD_X     = 12;   // 좌우 여백
+const COLS      = 3;     // 고정 3열 그리드
+const PARENT_R  = 52;    // 부모 노드 반지름 (px)
+const SUB_R     = 36;    // 서브 노드 반지름 (px)
+const CELL_W    = 116;   // 그리드 셀 너비
+const CELL_H    = 116;   // 그리드 셀 높이
+const PAD_TOP   = 20;    // 상단 여백
+const PAD_X     = 12;    // 좌우 여백
 
 // 서브 노드 궤도 반지름 — 부모 반지름 + 서브 반지름 + gap
-const ORBIT_R = PARENT_R + SUB_R + 18;
+const ORBIT_R = PARENT_R + SUB_R + 20;
 
 // 그룹별 랜덤 색상 팔레트
 const GROUP_COLORS = [
@@ -169,28 +169,28 @@ const NodeCircle = styled.div<{
 `;
 
 const NodeEmoji = styled.span`
-  font-size: 18px;
+  font-size: 24px;
   line-height: 1;
 `;
 
 const NodeLabel = styled.span`
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 700;
   color: rgba(55, 22, 5, 0.78);
   text-align: center;
-  margin-top: 3px;
-  max-width: ${PARENT_R * 2 - 6}px;
+  margin-top: 4px;
+  max-width: ${PARENT_R * 2 - 8}px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 `;
 
 const SubText = styled.span<{ $selected: boolean }>`
-  font-size: 7px;
+  font-size: 9.5px;
   font-weight: 700;
   color: ${p => (p.$selected ? "rgba(255,255,255,0.96)" : "rgba(55, 22, 5, 0.82)")};
   text-align: center;
-  padding: 0 2px;
+  padding: 0 3px;
   line-height: 1.25;
   display: -webkit-box;
   -webkit-line-clamp: 2;

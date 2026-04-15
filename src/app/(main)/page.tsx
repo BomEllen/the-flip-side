@@ -232,10 +232,18 @@ export default function HomePage() {
   const {
     todayCard,
     isTodayCardFlipped,
+    isLoadingCard,
     flipTodayCard,
     reactToCard,
     archiveTodayCard,
+    refreshTodayCard,
   } = useAppStore();
+
+  // 페이지 마운트 시 오늘 카드 갱신 (동적 추천 시도)
+  useEffect(() => {
+    refreshTodayCard();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Persist flip + archive when slider crosses midpoint
   useMotionValueEvent(sliderVal, "change", (v) => {
@@ -267,7 +275,20 @@ export default function HomePage() {
 
       {/* Card */}
       <CardArea>
-        {todayCard ? (
+        {isLoadingCard ? (
+          <EmptyState>
+            <motion.p
+              style={{ fontSize: 48 }}
+              animate={{ rotate: [0, 15, -15, 0] }}
+              transition={{ repeat: Infinity, duration: 1.6, ease: "easeInOut" }}
+            >
+              🔍
+            </motion.p>
+            <p style={{ fontSize: 15, fontWeight: 700, color: "rgba(180,70,20,0.7)" }}>
+              역취향 콘텐츠를 찾는 중...
+            </p>
+          </EmptyState>
+        ) : todayCard ? (
           <FlipCard
             card={todayCard}
             rotateY={rotateY}
